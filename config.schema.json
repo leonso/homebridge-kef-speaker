@@ -39,6 +39,7 @@
               "oneOf": [
                 { "title": "KEF LS50 Wireless II", "enum": ["LS50W2"] },
                 { "title": "KEF LSX II", "enum": ["LSX2"] },
+                { "title": "KEF LSX II LT", "enum": ["LSX2LT"] },
                 { "title": "KEF LS60", "enum": ["LS60"] }
               ]
             },

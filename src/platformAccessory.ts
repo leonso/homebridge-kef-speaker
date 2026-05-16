@@ -31,6 +31,8 @@ export class KefSpeakerAccessory {
   // Polling
   private pollingInterval?: NodeJS.Timeout;
   private pollingActive = false;
+  private commandGraceUntil = 0;
+  private readonly commandGraceMs = 4000;
 
   constructor(
     private readonly platform: KefLsxIIPlatform,
@@ -103,7 +105,7 @@ export class KefSpeakerAccessory {
 
     // Create input sources
     supportedSources.forEach((source, index) => {
-      const inputSource = this.accessory.getServiceById(this.platform.Service.InputSource, source);
+      let inputSource = this.accessory.getServiceById(this.platform.Service.InputSource, source);
       if (!inputSource) {
         inputSource = this.accessory.addService(this.platform.Service.InputSource, source, source);
       }
@@ -293,7 +295,8 @@ export class KefSpeakerAccessory {
     
     this.pollingInterval = setInterval(async () => {
       try {
-        const changes = await this.connector.checkForChanges(this.currentStatus);
+        const rawChanges = await this.connector.checkForChanges(this.currentStatus);
+        const changes = this.filterChangesDuringGracePeriod(rawChanges);
         
         if (Object.keys(changes).length > 0) {
           this.platform.log.debug(`Status changes detected for ${this.speakerConfig.name}:`, changes);
@@ -311,6 +314,22 @@ export class KefSpeakerAccessory {
     }, checkInterval);
     
     this.platform.log.info(`Started periodic status checking for ${this.speakerConfig.name} (every ${checkInterval/1000}s)`);
+  }
+
+  private filterChangesDuringGracePeriod(changes: SpeakerChange): SpeakerChange {
+    if (Date.now() >= this.commandGraceUntil) {
+      return changes;
+    }
+
+    const filteredChanges: SpeakerChange = { ...changes };
+    delete filteredChanges.power;
+    delete filteredChanges.source;
+
+    return filteredChanges;
+  }
+
+  private startCommandGracePeriod() {
+    this.commandGraceUntil = Date.now() + this.commandGraceMs;
   }
 
   /**
@@ -379,10 +398,12 @@ export class KefSpeakerAccessory {
       if (value === this.platform.Characteristic.Active.ACTIVE) {
         await this.connector.powerOn();
         this.currentStatus.power = 'powerOn';
+        this.currentStatus.source = 'wifi';
       } else {
         await this.connector.shutdown();
         this.currentStatus.power = 'standby';
       }
+      this.startCommandGracePeriod();
       this.platform.log.info(`Set power ${value ? 'ON' : 'OFF'} for ${this.speakerConfig.name}`);
     } catch (error) {
       this.platform.log.error(`Failed to set power state for ${this.speakerConfig.name}:`, error);
@@ -419,6 +440,7 @@ export class KefSpeakerAccessory {
         const source = supportedSources[sourceIndex];
         await this.connector.setSource(source);
         this.currentStatus.source = source;
+        this.startCommandGracePeriod();
         this.platform.log.info(`Set source to ${SOURCE_NAMES[source]} for ${this.speakerConfig.name}`);
       }
     } catch (error) {
@@ -549,8 +571,9 @@ export class KefSpeakerAccessory {
         this.currentStatus.muted = true;
         this.currentStatus.volume = 0;
       } else {
-        // Unmute: restore previous volume
-        await this.connector.unmute(this.previousVolume);
+        // Unmute: restore previous volume via native mute endpoint, then restore volume
+        await this.connector.unmute();
+        await this.connector.setVolume(this.previousVolume);
         this.currentStatus.muted = false;
         this.currentStatus.volume = this.previousVolume;
       }

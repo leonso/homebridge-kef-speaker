@@ -52,8 +52,9 @@ export class KefConnector {
   /**
    * Power control
    */
-  async powerOn(): Promise<void> {
-    await this.setStatus('powerOn');
+  async powerOn(source = 'wifi'): Promise<void> {
+    // Waking up by setting a physical source (not by sending 'powerOn' as source)
+    await this.setSource(source);
   }
 
   async shutdown(): Promise<void> {
@@ -72,19 +73,15 @@ export class KefConnector {
   }
 
   async setVolume(volume: number): Promise<void> {
-    await this.apiRequest('setData', {
-      path: 'player:volume',
-      roles: 'value',
-      value: JSON.stringify({ type: 'i32_', i32_: volume }),
-    });
+    await this.setDataRequest('player:volume', 'value', { type: 'i32_', i32_: volume });
   }
 
   async mute(): Promise<void> {
-    await this.setVolume(0);
+    await this.setDataRequest('settings:/mediaPlayer/mute', 'value', { type: 'bool_', bool_: true });
   }
 
-  async unmute(previousVolume: number): Promise<void> {
-    await this.setVolume(previousVolume);
+  async unmute(): Promise<void> {
+    await this.setDataRequest('settings:/mediaPlayer/mute', 'value', { type: 'bool_', bool_: false });
   }
 
   /**
@@ -99,15 +96,14 @@ export class KefConnector {
   }
 
   async setSource(source: string): Promise<void> {
-    await this.apiRequest('setData', {
-      path: 'settings:/kef/play/physicalSource',
-      roles: 'value',
-      value: JSON.stringify({ type: 'kefPhysicalSource', kefPhysicalSource: source }),
+    await this.setDataRequest('settings:/kef/play/physicalSource', 'value', {
+      type: 'kefPhysicalSource',
+      kefPhysicalSource: source,
     });
   }
 
   /**
-   * Status control
+   * Status control (read-only — write via setSource/powerOn/shutdown)
    */
   async getStatus(): Promise<'powerOn' | 'standby'> {
     const response = await this.apiRequest('getData', {
@@ -115,14 +111,6 @@ export class KefConnector {
       roles: 'value',
     });
     return response[0]?.kefSpeakerStatus || 'standby';
-  }
-
-  async setStatus(status: 'powerOn' | 'standby'): Promise<void> {
-    await this.apiRequest('setData', {
-      path: 'settings:/kef/play/physicalSource',
-      roles: 'value',
-      value: JSON.stringify({ type: 'kefPhysicalSource', kefPhysicalSource: status }),
-    });
   }
 
   /**
@@ -141,11 +129,7 @@ export class KefConnector {
   }
 
   private async trackControl(command: string): Promise<void> {
-    await this.apiRequest('setData', {
-      path: 'player:player/control',
-      roles: 'activate',
-      value: JSON.stringify({ control: command }),
-    });
+    await this.setDataRequest('player:player/control', 'activate', { control: command });
   }
 
   /**
@@ -343,14 +327,14 @@ export class KefConnector {
   }
 
   /**
-   * API request helper
+   * API helpers
    */
-  private async apiRequest(endpoint: string, params: any, method = 'GET'): Promise<any> {
+  private async apiRequest(endpoint: string, params: Record<string, unknown>, method = 'GET'): Promise<any> {
     const url = `${this.baseUrl}/${endpoint}`;
-    
+
     try {
       let response: Response;
-      
+
       if (method === 'POST') {
         response = await fetch(url, {
           method: 'POST',
@@ -373,8 +357,12 @@ export class KefConnector {
 
       return await response.json();
     } catch (error) {
-      this.log.error(`API request failed: ${error}`);
+      this.log.error(`API request failed [${method} ${endpoint}]: ${error}`);
       throw error;
     }
+  }
+
+  private async setDataRequest(path: string, roles: string, value: object): Promise<void> {
+    await this.apiRequest('setData', { path, roles, value }, 'POST');
   }
 } 

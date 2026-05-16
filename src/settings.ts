@@ -20,6 +20,10 @@ export const SPEAKER_MODELS = {
     name: 'KEF LSX II',
     sources: ['wifi', 'bluetooth', 'tv', 'optical', 'analog', 'usb'],
   },
+  LSX2LT: {
+    name: 'KEF LSX II LT',
+    sources: ['wifi', 'bluetooth', 'tv', 'optical', 'usb'],
+  },
   LS60: {
     name: 'KEF LS60',
     sources: ['wifi', 'bluetooth', 'tv', 'optical', 'coaxial', 'analog'],
